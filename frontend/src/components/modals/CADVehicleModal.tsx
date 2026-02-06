@@ -200,8 +200,8 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({ isOpen, onClose, dem
                 setUsingDemoFallback(true)
             }
 
-            wsRef.current.onerror = (err) => {
-                // console.error('WebSocket error', err)
+            wsRef.current.onerror = () => {
+                // console.error('WebSocket error')
                 wsRef.current?.close()
                 setUsingDemoFallback(true)
             }
