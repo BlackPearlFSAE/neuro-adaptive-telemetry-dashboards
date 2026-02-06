@@ -354,7 +354,7 @@ export const ComponentDetailsPanel: React.FC<ComponentDetailsPanelProps> = ({
 
                 // Cell simulation
                 const baseCellV = 3.9 + 0.1 * Math.sin(batTime * 0.2)
-                const simCells = Array(96).fill(0).map((_, i) => baseCellV + (Math.random() - 0.5) * 0.05)
+                const simCells = Array(96).fill(0).map(() => baseCellV + (Math.random() - 0.5) * 0.05)
                 const simMinCell = Math.min(...simCells)
                 const simMaxCell = Math.max(...simCells)
 
