@@ -8,18 +8,21 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { VehicleScene, ComponentDetailsPanel, Subsystem, VehicleTelemetryData, CameraPreset } from '../3d'
+import { CircularGauge, LinearPowerBar, StatusLED, PhaseCurrentDisplay } from './DataGauges'
 
 interface VehicleModalProps {
     isOpen: boolean
     onClose: () => void
+    demoTelemetry?: any // Telemetry from useDemoData for GitHub Pages fallback
 }
 
 // View modes
 type ViewMode = '3d' | 'data' | 'split'
 
-export const VehicleModal: React.FC<VehicleModalProps> = ({ isOpen, onClose }) => {
-    // State
-    const [telemetry, setTelemetry] = useState<any>(null)
+export const VehicleModal: React.FC<VehicleModalProps> = ({ isOpen, onClose, demoTelemetry }) => {
+    // State - use demoTelemetry as initial fallback
+    const [telemetry, setTelemetry] = useState<any>(demoTelemetry || null)
+    const [usingDemoFallback, setUsingDemoFallback] = useState(false)
     const [logs, setLogs] = useState<string[]>([])
     const [selectedLog, setSelectedLog] = useState<string>('')
     const [isReplaying, setIsReplaying] = useState(false)
@@ -37,8 +40,122 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({ isOpen, onClose }) =
     const wsRef = useRef<WebSocket | null>(null)
     const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+    // Demo data generator - defined before WebSocket to be used in onmessage
+    const generateDemoTelemetry = useCallback(() => {
+        const time = Date.now() / 1000
+        const speedCycle = (Math.sin(time * 0.2) + 1) / 2
+        const rpm = 2000 + speedCycle * 8000 + Math.random() * 500
+        const torque = (rpm / 12000) * 230 * 0.9
+        const power = (rpm * torque) / 9549
+
+        return {
+            motor: {
+                rpm,
+                temperature: 45 + (rpm / 12000) * 40,
+                torque_nm: torque,
+                power_kw: power,
+                efficiency: 94 + Math.sin(time) * 2,
+                mode: 'RACE',
+                status: 'optimal',
+                inverter: {
+                    status: 'RUN',
+                    dc_bus_voltage: 380 + Math.sin(time * 0.5) * 5,
+                    igbt_temp: 50 + (power / 80) * 30,
+                    switching_freq: 16000 + Math.random() * 100,
+                    fault_code: 0,
+                    phase_u: power * 2.5,
+                    phase_v: power * 2.55,
+                    phase_w: power * 2.45
+                }
+            },
+            battery: {
+                voltage: 380 + Math.cos(time * 0.1) * 10,
+                current: power * 2.8,
+                soc: 85 - (time % 3600) / 60,
+                health_soh: 98.5,
+                status: 'optimal'
+            },
+            chassis: {
+                speed_kph: speedCycle * 140,
+                status: 'optimal',
+                suspension_travel: { fl: 0, fr: 0, rl: 0, rr: 0 },
+                acceleration_g: {
+                    lateral: Math.sin(time * 0.5) * 1.5,
+                    longitudinal: Math.cos(time * 0.2) * 0.8
+                },
+                downforce_kg: (speedCycle * 140) * 1.5,
+                safety: {
+                    hv_on: true,
+                    imd_ok: true,
+                    ams_ok: true,
+                    bspd_ok: true
+                }
+            },
+            brakes: {
+                bias_percent: 58,
+                pressure_front: 0,
+                pressure_rear: 0,
+                temp_fl: 150, temp_fr: 150, temp_rl: 120, temp_rr: 120
+            },
+            tires: {
+                fl: { temp: 85, pressure: 1.8, wear: 95 },
+                fr: { temp: 88, pressure: 1.8, wear: 94 },
+                rl: { temp: 92, pressure: 1.9, wear: 92 },
+                rr: { temp: 91, pressure: 1.9, wear: 91 }
+            },
+            energyManagement: {
+                attack_mode_active: false,
+                attack_mode_activations: 1,
+                attack_mode_remaining: 0,
+                regen_level: 5
+            },
+            powerMap: {
+                id: 1,
+                name: 'RACE',
+                map_id: 1
+            },
+            lap: {
+                current: 5,
+                last_time: 84.5,
+                best_time: 83.2
+            },
+            overallStatus: 'optimal',
+            timestamp: Date.now()
+        }
+    }, [])
+
+    // Simulation Loop: drives animation when in demo fallback mode
+    useEffect(() => {
+        // Force demo mode if on GitHub Pages or if explicitly requested
+        if (window.location.hostname.includes('github.io') || window.location.hostname.includes('vercel.app')) {
+            setUsingDemoFallback(true)
+        }
+
+        if (!usingDemoFallback) return
+
+        const interval = setInterval(() => {
+            // Check if we have external demo prop (from NeuroAdaptive) OR use internal generator
+            // We prioritize Internal Generator for the Modal because it runs at 60fps/30fps 
+            // vs the prop which might be slower from the parent App
+
+            // However, if the parent is passing specific scenario data, we should use it.
+            // For now, let's mix: if demoTelemetry is provided AND has changing data, use it.
+            // Otherwise, generate our own physics for smooth gauge movement.
+
+            setTelemetry(generateDemoTelemetry())
+        }, 33) // ~30Hz update rate for smooth animation
+
+        return () => clearInterval(interval)
+    }, [usingDemoFallback, generateDemoTelemetry])
+
     // WebSocket connection for real-time telemetry
     const connectWebSocket = useCallback(() => {
+        // constant check for static deployment
+        if (window.location.hostname.includes('github.io')) {
+            setUsingDemoFallback(true)
+            return
+        }
+
         if (wsRef.current?.readyState === WebSocket.OPEN) return
 
         try {
@@ -47,14 +164,29 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({ isOpen, onClose }) =
 
             wsRef.current.onopen = () => {
                 console.log('🚗 Vehicle WebSocket connected (60Hz)')
+                // If connected, we are no longer using demo fallback
+                setUsingDemoFallback(false)
             }
 
             wsRef.current.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data)
-                    setTelemetry(data)
-                    if (data.isReplay) {
-                        setProgress((data.replayIndex / data.totalFrames) * 100)
+
+                    // Check for zero data (server connected but no vehicle telemetry)
+                    // If backend sends empty struct, wait for valid data or use fallback
+                    const isZeroData = data.motor?.rpm === 0 && data.battery?.voltage === 0
+
+                    if (isZeroData) {
+                        // Keep using fallback until we get real values
+                        // But allow the WEBSOCKET to stay open to receive them when they start
+                    } else {
+                        // Real data received! Switch off simulation
+                        if (usingDemoFallback) setUsingDemoFallback(false)
+
+                        setTelemetry(data)
+                        if (data.isReplay) {
+                            setProgress((data.replayIndex / data.totalFrames) * 100)
+                        }
                     }
                 } catch (e) {
                     console.error('WebSocket parse error', e)
@@ -62,34 +194,51 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({ isOpen, onClose }) =
             }
 
             wsRef.current.onclose = () => {
-                console.log('Vehicle WebSocket disconnected, reconnecting...')
-                reconnectTimeoutRef.current = setTimeout(connectWebSocket, 2000)
+                // console.log('Vehicle WebSocket disconnected')
+                // Do not aggressively reconnect in this demo version to avoid console spam
+                // reconnectTimeoutRef.current = setTimeout(connectWebSocket, 5000)
+                setUsingDemoFallback(true)
             }
 
             wsRef.current.onerror = (err) => {
-                console.error('WebSocket error', err)
+                // console.error('WebSocket error', err)
                 wsRef.current?.close()
+                setUsingDemoFallback(true)
             }
         } catch (e) {
             // Fallback to polling if WebSocket fails
             console.log('WebSocket unavailable, using polling fallback')
+            setUsingDemoFallback(true)
         }
-    }, [])
+    }, [usingDemoFallback])
 
     // Fetch logs and power maps on mount
     useEffect(() => {
         if (isOpen) {
+            // Fast failure for GitHub Pages to avoid 404 console errors
+            if (window.location.hostname.includes('github.io')) {
+                setUsingDemoFallback(true)
+                return
+            }
+
+            // Try to fetch from backend, but gracefully handle failures
             fetch('/api/vehicle/list-logs')
-                .then(res => res.json())
+                .then(res => res.ok ? res.json() : Promise.reject())
                 .then(data => {
                     setLogs(data.logs || [])
                     if (data.logs?.length > 0) setSelectedLog(data.logs[0])
                 })
-            fetch('/api/vehicle/power-maps')
-                .then(res => res.json())
-                .then(data => setPowerMaps(data.maps || {}))
+                .catch(() => {
+                    // Backend unavailable - using demo mode
+                    setUsingDemoFallback(true)
+                })
 
-            // Try WebSocket first, fallback to polling
+            fetch('/api/vehicle/power-maps')
+                .then(res => res.ok ? res.json() : Promise.reject())
+                .then(data => setPowerMaps(data.maps || {}))
+                .catch(() => { /* silently ignore */ })
+
+            // Try WebSocket first, fallback to demo data
             connectWebSocket()
         }
 
@@ -101,30 +250,66 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({ isOpen, onClose }) =
         }
     }, [isOpen, connectWebSocket])
 
-    // Polling fallback if WebSocket not available
+    // Sync demoTelemetry prop if we are strictly using parent data
+    // Sync demoTelemetry prop if we are strictly using parent data
+    // This useEffect is now primarily for when demoTelemetry is provided externally (e.g., from NeuroAdaptive)
+    // and we are in a fallback state. The internal simulation loop handles generateDemoTelemetry.
     useEffect(() => {
-        if (!isOpen) return
+        // CONFLICT RESOLUTION:
+        // App.tsx passes 'demoTelemetry' which updates at ~10Hz. 
+        // Our internal interval runs at ~30Hz (see above).
+        // If we allow this effect to run, it overwrites our smooth internal physics with choppy data, causing "flickering".
+        // FIX: Only use external prop if it's a specific REPLAY or if we are NOT in our own fallback mode.
+        // Actually, for GitHub Pages demo, we ALWAYS want the internal generator.
 
-        // Only poll if WebSocket is not connected
+        if (demoTelemetry && !usingDemoFallback && demoTelemetry.isReplay) {
+            setTelemetry(demoTelemetry)
+        }
+    }, [demoTelemetry, usingDemoFallback])
+
+    // Polling fallback - simplified to mostly trigger demo mode if API fails
+    useEffect(() => {
+        if (!isOpen || usingDemoFallback) return
+
         const interval = setInterval(async () => {
             if (wsRef.current?.readyState !== WebSocket.OPEN) {
+                if (window.location.hostname.includes('github.io')) {
+                    setUsingDemoFallback(true)
+                    return
+                }
+
+                // Otherwise try fetching
                 try {
-                    const res = await fetch('/api/vehicle')
+                    const controller = new AbortController()
+                    const timeoutId = setTimeout(() => controller.abort(), 800) // Fast timeout
+
+                    const res = await fetch('/api/vehicle', { signal: controller.signal })
+                    clearTimeout(timeoutId)
+
                     if (res.ok) {
                         const data = await res.json()
-                        setTelemetry(data)
-                        if (data.isReplay) {
-                            setProgress((data.replayIndex / data.totalFrames) * 100)
+                        const isZeroData = data.motor?.rpm === 0 && data.battery?.voltage === 0
+
+                        if (isZeroData) {
+                            // Backend sending empty data, use simulation
+                            // Don't setUsingDemoFallback(true) permanently here, just use data
+                            setTelemetry(generateDemoTelemetry())
+                        } else {
+                            setTelemetry(data)
                         }
+                    } else {
+                        throw new Error('API Error')
                     }
                 } catch (e) {
-                    console.error("Telemetry fetch error", e)
+                    // Backend unavailable, switch to demo fallback
+                    setUsingDemoFallback(true)
+                    setTelemetry(generateDemoTelemetry())
                 }
             }
-        }, 100)
+        }, 1000)
 
         return () => clearInterval(interval)
-    }, [isOpen])
+    }, [isOpen, usingDemoFallback, generateDemoTelemetry])
 
     // Control handlers
     const handleLoadLog = async () => {
@@ -378,24 +563,122 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({ isOpen, onClose }) =
                                         </div>
                                     </div>
 
-                                    {/* Motor Card */}
-                                    <div style={styles.card}>
-                                        <h3 style={styles.cardTitle}>MOTOR / INVERTER</h3>
-                                        <div style={styles.metricRow}>
-                                            <span style={styles.label}>RPM</span>
-                                            <span style={{ ...styles.value, fontFamily: 'monospace' }}>
-                                                {telemetry?.motor?.rpm ?? 0}
-                                            </span>
+                                    {/* ===== ADVANCED MOTOR / INVERTER CARD ===== */}
+                                    <div style={{ ...styles.card, gridColumn: 'span 2' }}>
+                                        <h3 style={styles.cardTitle}>⚡ MOTOR / INVERTER ADVANCED</h3>
+                                        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                                            {/* RPM Gauge */}
+                                            <CircularGauge
+                                                value={telemetry?.motor?.rpm ?? 0}
+                                                max={12000}
+                                                label="RPM"
+                                                unit="rpm"
+                                                size={100}
+                                                warning={9000}
+                                                critical={11000}
+                                            />
+
+                                            {/* Efficiency Gauge */}
+                                            <CircularGauge
+                                                value={telemetry?.motor?.efficiency ?? 95}
+                                                max={100}
+                                                label="EFFICIENCY"
+                                                unit="%"
+                                                size={100}
+                                                warning={85}
+                                                critical={75}
+                                            />
+
+                                            {/* Right side metrics */}
+                                            <div style={{ flex: 1, minWidth: 150 }}>
+                                                {/* Power Bar */}
+                                                <LinearPowerBar
+                                                    value={telemetry?.motor?.power_kw ?? 0}
+                                                    max={80}
+                                                    label="POWER OUTPUT"
+                                                    unit="kW"
+                                                />
+
+                                                {/* Torque */}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                                                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem' }}>TORQUE</span>
+                                                    <span style={{ color: '#00d4ff', fontFamily: 'monospace', fontWeight: 600 }}>
+                                                        {(telemetry?.motor?.torque_nm ?? 0).toFixed(1)} Nm
+                                                    </span>
+                                                </div>
+
+                                                {/* Motor Temp */}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                                                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem' }}>MOTOR TEMP</span>
+                                                    <span style={{
+                                                        color: getTempColor(telemetry?.motor?.temperature ?? 0),
+                                                        fontFamily: 'monospace',
+                                                        fontWeight: 600
+                                                    }}>
+                                                        {(telemetry?.motor?.temperature ?? 0).toFixed(1)}°C
+                                                    </span>
+                                                </div>
+
+                                                {/* Inverter Status LED */}
+                                                <StatusLED
+                                                    status={telemetry?.motor?.inverter?.status === 'RUN' ? 'run' :
+                                                        telemetry?.motor?.inverter?.status === 'READY' ? 'ready' : 'off'}
+                                                    label={telemetry?.motor?.inverter?.status ?? 'OFF'}
+                                                />
+                                            </div>
                                         </div>
-                                        <div style={styles.metricRow}>
-                                            <span style={styles.label}>POWER</span>
-                                            <span style={styles.value}>{(telemetry?.motor?.power_kw ?? 0).toFixed(1)} kW</span>
-                                        </div>
-                                        <div style={styles.metricRow}>
-                                            <span style={styles.label}>TEMP</span>
-                                            <span style={{ ...styles.value, color: getTempColor(telemetry?.motor?.temperature ?? 0) }}>
-                                                {telemetry?.motor?.temperature ?? 0}°C
-                                            </span>
+                                    </div>
+
+                                    {/* ===== INVERTER DIAGNOSTICS CARD ===== */}
+                                    <div style={{ ...styles.card, gridColumn: 'span 2' }}>
+                                        <h3 style={styles.cardTitle}>🔧 INVERTER DIAGNOSTICS</h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                            {/* Left: DC Bus & IGBT */}
+                                            <div>
+                                                <div style={styles.metricRow}>
+                                                    <span style={styles.label}>DC BUS VOLTAGE</span>
+                                                    <span style={{ ...styles.value, color: '#8b5cf6' }}>
+                                                        {(telemetry?.motor?.inverter?.dc_bus_voltage ?? 0).toFixed(1)} V
+                                                    </span>
+                                                </div>
+                                                <div style={styles.metricRow}>
+                                                    <span style={styles.label}>IGBT TEMP</span>
+                                                    <span style={{
+                                                        ...styles.value,
+                                                        color: getTempColor(telemetry?.motor?.inverter?.igbt_temp ?? 0)
+                                                    }}>
+                                                        {(telemetry?.motor?.inverter?.igbt_temp ?? 0).toFixed(1)}°C
+                                                    </span>
+                                                </div>
+                                                <div style={styles.metricRow}>
+                                                    <span style={styles.label}>SWITCHING FREQ</span>
+                                                    <span style={styles.value}>
+                                                        {(telemetry?.motor?.inverter?.switching_freq ?? 0) / 1000} kHz
+                                                    </span>
+                                                </div>
+                                                <div style={styles.metricRow}>
+                                                    <span style={styles.label}>FAULT CODE</span>
+                                                    <span style={{
+                                                        ...styles.value,
+                                                        color: (telemetry?.motor?.inverter?.fault_code ?? 0) === 0 ? '#10b981' : '#ef4444'
+                                                    }}>
+                                                        {(telemetry?.motor?.inverter?.fault_code ?? 0) === 0 ? 'NO FAULT' : `0x${(telemetry?.motor?.inverter?.fault_code ?? 0).toString(16).toUpperCase()}`}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Right: Phase Currents */}
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', marginBottom: 8, letterSpacing: '1px' }}>
+                                                    PHASE CURRENTS
+                                                </div>
+                                                <PhaseCurrentDisplay
+                                                    u={telemetry?.motor?.inverter?.phase_u ?? 0}
+                                                    v={telemetry?.motor?.inverter?.phase_v ?? 0}
+                                                    w={telemetry?.motor?.inverter?.phase_w ?? 0}
+                                                    max={200}
+                                                />
+                                            </div>
                                         </div>
                                     </div>
 
