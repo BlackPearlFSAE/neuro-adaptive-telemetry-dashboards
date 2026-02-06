@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import { Subsystem } from './FormulaCar3D'
-import { VehicleTelemetryData } from '../../types/telemetry'
+import { VehicleTelemetryData } from '../types/telemetry'
 
 interface ComponentDetailsPanelProps {
     selectedComponent: Subsystem | null
