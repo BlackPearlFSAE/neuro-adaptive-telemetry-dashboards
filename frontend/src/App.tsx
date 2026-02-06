@@ -29,6 +29,7 @@ import { SafetyTrendChart } from './components/SafetyTrendChart'
 import { TeamManager } from './components/TeamManager'
 import { EEGAnalyzeModal } from './components/modals/EEGAnalyzeModal'
 import { ADASPanel } from './components/ADASPanel'
+import { EnergyMeterPanel } from './components/EnergyMeterPanel'
 import { CircuitProvider } from './contexts/CircuitContext'
 import { useWebSocket, useDemoData } from './hooks/useWebSocket'
 import { BiosignalsData, EmotionalStateData, TeamMember, VehicleTelemetryData } from './types/telemetry'
@@ -49,7 +50,7 @@ function App() {
     const { data: wsData, connected, sendUpdate } = useWebSocket()
     const demoData = useDemoData()
 
-    const [activeTab, setActiveTab] = useState<'overview' | 'biosignals' | 'vehicle' | 'safety' | 'cameras' | 'strategy' | 'engineering' | 'team' | 'adas'>('overview')
+    const [activeTab, setActiveTab] = useState<'overview' | 'biosignals' | 'vehicle' | 'safety' | 'cameras' | 'strategy' | 'engineering' | 'team' | 'adas' | 'energy'>('overview')
     const [showBestPractices, setShowBestPractices] = useState(false)
     const [showSettings, setShowSettings] = useState(false)
     const [showVehicleModal, setShowVehicleModal] = useState(false)
@@ -74,27 +75,76 @@ function App() {
         },
     ])
 
-    const data = connected && wsData ? wsData : demoData
+    const [opMode, setOpMode] = useState(() => localStorage.getItem('nats_operation_mode') || 'auto')
 
-    // Fetch vehicle telemetry
     useEffect(() => {
+        const handleConfigUpdate = () => {
+            setOpMode(localStorage.getItem('nats_operation_mode') || 'auto')
+        }
+        window.addEventListener('nats-config-updated', handleConfigUpdate)
+        return () => window.removeEventListener('nats-config-updated', handleConfigUpdate)
+    }, [])
+
+    // Determine Source Data based on Operation Mode
+    let data = demoData // Default fallback
+
+    if (opMode === 'live') {
+        // In Live mode, only use WS data. If null, use a "Waiting" state placeholder or keep last known?
+        // For safety, we use demoData structure but check connected status
+        if (wsData) {
+            data = wsData
+        } else {
+            // Waiting for stream... keep structure but maybe valid "empty" values?
+            // Actually, showing "Connected, Waiting..." is better. 
+            // We'll reuse demoData structure but mark status.
+            data = { ...demoData, systemStatus: connected ? 'WAITING FOR STREAM' : 'DISCONNECTED' }
+        }
+    } else if (opMode === 'demo') {
+        data = demoData
+    } else {
+        // Auto: Use WS if available and connected, else Demo
+        data = connected && wsData ? wsData : demoData
+    }
+
+    // Sync Vehicle Data from high-frequency stream (WS or Demo)
+    useEffect(() => {
+        // If the main data stream contains vehicle telemetry (from Demo or improved WS), use it directly
+        // This provides 60Hz/10Hz updates vs 1Hz polling
+        if (data && (data.motor || data.chassis)) {
+            setVehicleData(prev => ({
+                ...getDefaultVehicleData(), // Ensure defaults
+                ...prev,
+                ...data as unknown as VehicleTelemetryData // Overlay stream data
+            }))
+        }
+    }, [data])
+
+    // Poll vehicle telemetry (Fallback / Low Frequency)
+    useEffect(() => {
+        if (opMode === 'demo') return // Skip polling in demo mode
+
         const fetchVehicle = async () => {
             try {
                 const res = await fetch('/api/vehicle')
                 if (res.ok) {
-                    const data = await res.json()
-                    setVehicleData(data)
+                    const apiData = await res.json()
+                    // Only update if we aren't getting high-freq data from WS
+                    if (!data?.motor) {
+                        setVehicleData(apiData)
+                    }
                 }
             } catch {
-                // Use demo data if backend unavailable
-                setVehicleData(getDefaultVehicleData())
+                if (opMode !== 'demo') {
+                    // Only fallback to static default if NOT in demo (demo uses generated data)
+                    // setVehicleData(getDefaultVehicleData()) 
+                }
             }
         }
 
         fetchVehicle()
         const interval = setInterval(fetchVehicle, 1000)
         return () => clearInterval(interval)
-    }, [])
+    }, [opMode, data?.motor])
 
     useEffect(() => {
         const handleNavSafety = () => setActiveTab('safety')
@@ -279,6 +329,12 @@ function App() {
                     >
                         🚗 ADAS
                     </button>
+                    <button
+                        style={{ ...styles.tab, ...(activeTab === 'energy' ? styles.tabActive : {}) }}
+                        onClick={() => setActiveTab('energy')}
+                    >
+                        ⚡ Energy
+                    </button>
                 </div>
 
                 {/* Main Content */}
@@ -346,6 +402,10 @@ function App() {
                     <div style={styles.adasView}>
                         <ADASPanel />
                     </div>
+                ) : activeTab === 'energy' ? (
+                    <div style={styles.adasView}>
+                        <EnergyMeterPanel />
+                    </div>
                 ) : (
                     <div style={styles.engineeringView}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', padding: '24px', height: '100%', overflowY: 'auto' }}>
@@ -392,7 +452,7 @@ function App() {
                 {/* Best Practices Modal */}
                 <BestPracticesModal isOpen={showBestPractices} onClose={() => setShowBestPractices(false)} />
                 <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
-                <VehicleModal isOpen={showVehicleModal} onClose={() => setShowVehicleModal(false)} />
+                <VehicleModal isOpen={showVehicleModal} onClose={() => setShowVehicleModal(false)} demoTelemetry={data} />
                 <EEGAnalyzeModal isOpen={showEEGModal} onClose={() => setShowEEGModal(false)} data={data.eeg} />
             </div>
         </CircuitProvider>
@@ -448,6 +508,16 @@ function getDefaultVehicleData(): VehicleTelemetryData {
             acceleration_g: { lateral: 1.5, longitudinal: 0.8, vertical: 1.0 },
             suspension_travel: { fl: 45, fr: 47, rl: 42, rr: 40 },
             downforce_kg: 850
+        },
+        aero: {
+            front_wing: { downforce_kg: 250, drag_n: 100, efficiency: 95 },
+            rear_wing: { downforce_kg: 400, drag_n: 180, efficiency: 90, drs_active: false, drs_flap_angle: 18 },
+            diffuser: { downforce_kg: 200, expansion_ratio: 2.8, ground_clearance_mm: 35 },
+            total_downforce_kg: 850,
+            total_drag_n: 280,
+            aero_balance: 42,
+            ride_height_front_mm: 30,
+            ride_height_rear_mm: 45
         },
         lap: {
             current: 12,
