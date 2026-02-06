@@ -34,7 +34,7 @@ export const CircularGauge: React.FC<CircularGaugeProps> = ({
     const radius = size / 2 - 10
     const circumference = 2 * Math.PI * radius
     const angle = ((value - min) / (max - min)) * 270 // 270 degree arc
-    const offset = circumference - (angle / 360) * circumference
+    // const offset = circumference - (angle / 360) * circumference
 
     // Determine color based on thresholds
     const getColor = () => {
