@@ -171,6 +171,14 @@ export interface TelemetryData {
     biosignals?: BiosignalsData
     emotionalState?: EmotionalStateData
     systemStatus: string
+
+    // Vehicle Telemetry (Optional integration)
+    motor?: VehicleMotor
+    battery?: VehicleBattery
+    brakes?: VehicleBrakes
+    tires?: VehicleTires
+    chassis?: VehicleChassis
+    cellMonitoring?: CellMonitoring
 }
 
 export interface InterventionUpdate {
@@ -269,6 +277,40 @@ export interface VehicleChassis {
     }
 }
 
+export interface AeroComponent {
+    downforce_kg: number
+    drag_n: number
+    angle_deg?: number
+    aoa_deg?: number
+    efficiency: number
+    cl?: number
+    cd?: number
+    ld_ratio?: number
+    surface_temp_c?: number
+}
+
+export interface RearWing extends AeroComponent {
+    drs_active: boolean
+    drs_flap_angle: number
+}
+
+export interface Diffuser {
+    downforce_kg: number
+    expansion_ratio: number
+    ground_clearance_mm: number
+}
+
+export interface AeroTelemetry {
+    front_wing: AeroComponent
+    rear_wing: RearWing
+    diffuser: Diffuser
+    total_downforce_kg: number
+    total_drag_n: number
+    aero_balance: number // % front
+    ride_height_front_mm: number
+    ride_height_rear_mm: number
+}
+
 export interface EnergyManagement {
     regen_level: number
     attack_mode_active: boolean
@@ -324,6 +366,7 @@ export interface VehicleTelemetryData {
     brakes?: VehicleBrakes
     tires?: VehicleTires
     chassis?: VehicleChassis
+    aero?: AeroTelemetry
     energyManagement?: EnergyManagement
     powerMap?: PowerMap
     cellMonitoring?: CellMonitoring
