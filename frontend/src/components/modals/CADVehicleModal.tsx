@@ -682,6 +682,58 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({ isOpen, onClose, dem
                                         </div>
                                     </div>
 
+                                    {/* ===== BRAKE & TIRE THERMALS ===== */}
+                                    <div style={{ ...styles.card, gridColumn: 'span 2' }}>
+                                        <h3 style={styles.cardTitle}>🌡️ BRAKE & TIRE THERMALS</h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+                                            {/* Brakes */}
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', marginBottom: 12, letterSpacing: '1px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 4 }}>BRAKE DISC TEMP</div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, rowGap: 8 }}>
+                                                    {[
+                                                        { label: 'FL', val: telemetry?.brakes?.temp_fl },
+                                                        { label: 'FR', val: telemetry?.brakes?.temp_fr },
+                                                        { label: 'RL', val: telemetry?.brakes?.temp_rl },
+                                                        { label: 'RR', val: telemetry?.brakes?.temp_rr }
+                                                    ].map((item, i) => (
+                                                        <div key={i} style={styles.metricRow}>
+                                                            <span style={{ ...styles.label, minWidth: 20 }}>{item.label}</span>
+                                                            <span style={{
+                                                                ...styles.value,
+                                                                color: getTempColor(item.val ?? 0)
+                                                            }}>
+                                                                {(item.val ?? 0).toFixed(0)}°C
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Tires */}
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', marginBottom: 12, letterSpacing: '1px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 4 }}>TIRE SURFACE TEMP</div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, rowGap: 8 }}>
+                                                    {[
+                                                        { label: 'FL', val: telemetry?.tires?.fl?.temp },
+                                                        { label: 'FR', val: telemetry?.tires?.fr?.temp },
+                                                        { label: 'RL', val: telemetry?.tires?.rl?.temp },
+                                                        { label: 'RR', val: telemetry?.tires?.rr?.temp }
+                                                    ].map((item, i) => (
+                                                        <div key={i} style={styles.metricRow}>
+                                                            <span style={{ ...styles.label, minWidth: 20 }}>{item.label}</span>
+                                                            <span style={{
+                                                                ...styles.value,
+                                                                color: getTempColor(item.val ?? 0)
+                                                            }}>
+                                                                {(item.val ?? 0).toFixed(0)}°C
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     {/* Attack Mode Card */}
                                     <div style={{ ...styles.card, background: energy?.attack_mode_active ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255,255,255,0.03)' }}>
                                         <h3 style={styles.cardTitle}>⚡ ATTACK MODE</h3>
