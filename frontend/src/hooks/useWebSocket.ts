@@ -111,53 +111,15 @@ export function useDemoData(): TelemetryData {
 }
 
 // @ts-ignore
-import { DEMO_REPLAY_LOGS } from '../data/demoReplayData'
+// import { DEMO_REPLAY_LOGS } from '../data/demoReplayData'
 
 let demoTimeOffset = 0
-let replayIndex = 0
-let currentLogFile = ''
-
-// Reset replay when config changes
-if (typeof window !== 'undefined') {
-    window.addEventListener('nats-config-updated', () => {
-        const newLog = localStorage.getItem('nats_demo_log_file') || 'datalog_000.csv'
-        if (newLog !== currentLogFile) {
-            currentLogFile = newLog
-            replayIndex = 0
-            console.log(`Switched simulation log to: ${newLog}`)
-        }
-    })
-}
+// let replayIndex = 0
 
 function generateDemoData(): TelemetryData {
     demoTimeOffset += 0.1
 
-    // Determine active log file
-    const selectedLog = localStorage.getItem('nats_demo_log_file') || 'datalog_000.csv'
-    if (selectedLog !== currentLogFile) {
-        currentLogFile = selectedLog
-        replayIndex = 0
-    }
-
-    // Get replay frame from the selected log
-    const logData = DEMO_REPLAY_LOGS[selectedLog] || DEMO_REPLAY_LOGS['datalog_000.csv'] || []
-
-    // Safety check for empty logs
-    if (logData.length === 0) {
-        // Fallback if no data
-        return {
-            timestamp: new Date().toISOString(),
-            systemStatus: 'DEMO Telemetry',
-            driver: { name: 'Unknown', mode: 'Offline', heartRate: 0, stress: 0 },
-            eeg: { samplingRate: 0, status: 'Offline', waveform: [], thetaFocus: 0, betaStress: 0 },
-            telemetrySync: { status: 'OFF', mTeslaPrediction: '-', predictionStatus: '-', circuit: '-', carPosition: 0 },
-            adaptiveIntervention: { active: false, throttleMapping: 'LINEAR', throttleCurve: [], cognitiveLoadHud: 'REDUCED', hapticSteering: 'NOMINAL' }
-        } as TelemetryData
-    }
-
-    const replayFrame = logData[replayIndex % logData.length]
-    replayIndex++
-
+    // Procedural Waveform Generation
     const waveform: number[] = []
     for (let i = 0; i < 100; i++) {
         const t = demoTimeOffset + i * 0.01
@@ -190,11 +152,11 @@ function generateDemoData(): TelemetryData {
             betaStress: 0.35 + 0.08 * Math.sin(demoTimeOffset * 0.25)
         },
         telemetrySync: {
-            status: 'REPLAY',
+            status: 'SIMULATION',
             mTeslaPrediction: 'Optimal',
             predictionStatus: 'ACTIVE',
             circuit: 'SILVERSTONE',
-            carPosition: (replayIndex / logData.length) % 1
+            carPosition: (demoTimeOffset * 0.05) % 1
         },
         adaptiveIntervention: {
             active: true,
@@ -212,6 +174,8 @@ function generateDemoData(): TelemetryData {
             torque_nm: 350 + 100 * Math.cos(demoTimeOffset * 0.3),
             efficiency: 96,
             inv_mode: 'RUN',
+            mode: 'RACE',
+            map_setting: 1,
             status: 'optimal'
         },
         battery: {
@@ -219,11 +183,18 @@ function generateDemoData(): TelemetryData {
             voltage: 395 + 10 * Math.sin(demoTimeOffset * 0.1),
             current: -150 + 100 * Math.sin(demoTimeOffset * 0.2), // Negative = Discharge
             temperature: 45 + 5 * Math.sin(demoTimeOffset * 0.05),
+            power_kw: 120, // Estimated
+            min_cell_temp: 40,
+            max_cell_temp: 50,
             status: 'optimal',
             health_soh: 98
         },
         chassis: {
             speed_kph: 150 + 50 * Math.sin(demoTimeOffset * 0.3),
+            steering_angle: 15 * Math.sin(demoTimeOffset * 0.1),
+            throttle_position: 80 + 20 * Math.sin(demoTimeOffset * 0.3),
+            brake_position: 0,
+            downforce_kg: 400 + 100 * Math.sin(demoTimeOffset * 0.3),
             suspension_travel: {
                 fl: 10 + 5 * Math.random(),
                 fr: 10 + 5 * Math.random(),
@@ -233,40 +204,37 @@ function generateDemoData(): TelemetryData {
             acceleration_g: {
                 longitudinal: 1.5 * Math.sin(demoTimeOffset * 0.5),
                 lateral: 2.0 * Math.cos(demoTimeOffset * 0.4),
-                vertical: 1.0 // Unused
+                vertical: 1.0
             },
             safety: {
                 hv_on: true,
                 imd_ok: true,
                 ams_ok: true,
-                bspd_ok: true,
-                apps: 50 + 40 * Math.sin(demoTimeOffset * 0.3),
-                bpps: Math.max(0, -20 * Math.sin(demoTimeOffset * 0.3)) // Brake when accel is low
+                bspd_ok: true
             }
         },
         tires: {
             front_left: { temp: 85 + 10 * Math.sin(demoTimeOffset * 0.1), pressure: 2.1, wear: 95 },
             front_right: { temp: 88 + 10 * Math.sin(demoTimeOffset * 0.12), pressure: 2.1, wear: 94 },
             rear_left: { temp: 92 + 15 * Math.sin(demoTimeOffset * 0.15), pressure: 1.9, wear: 90 },
-            rear_right: { temp: 90 + 15 * Math.sin(demoTimeOffset * 0.14), pressure: 1.9, wear: 89 }
+            rear_right: { temp: 90 + 15 * Math.sin(demoTimeOffset * 0.14), pressure: 1.9, wear: 89 },
+            status: 'optimal'
         },
         brakes: {
             bias_percent: 54,
             pressure_front: 30 + 30 * Math.max(0, -Math.sin(demoTimeOffset * 0.3)),
-            pressure_rear: 25 + 25 * Math.max(0, -Math.sin(demoTimeOffset * 0.3))
+            pressure_rear: 25 + 25 * Math.max(0, -Math.sin(demoTimeOffset * 0.3)),
+            front_left_temp: 350 + 50 * Math.sin(demoTimeOffset * 0.1),
+            front_right_temp: 360 + 50 * Math.sin(demoTimeOffset * 0.1),
+            rear_left_temp: 280 + 40 * Math.sin(demoTimeOffset * 0.1),
+            rear_right_temp: 290 + 40 * Math.sin(demoTimeOffset * 0.1),
+            status: 'optimal'
         },
         cellMonitoring: {
-            cell_count: 96,
             voltages: Array(96).fill(0).map((_, i) => 3.8 + 0.1 * Math.sin(demoTimeOffset * 0.1 + i * 0.1)),
             min_voltage: 3.7,
             max_voltage: 3.9,
-            voltage_delta: 0.2,
-            min_cell_temp: 40,
-            max_cell_temp: 48,
-            balancing_active: true,
-            pack_health_pct: 98
-        },
-        // Inject Real CSV Replay Data (overrides above defaults)
-        ...replayFrame
+            balance_active: true
+        }
     }
 }
